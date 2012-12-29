@@ -13,7 +13,7 @@ DIRS := \
 	/etc/binfmt.d \
 	/usr/lib/binfmt.d \
 	/usr/lib/axeinit \
-	/usr/share/man/man1 \
+	/usr/share/man/man7 \
 	/usr/share/man/man5 \
 	/usr/share/man/man8
 
@@ -33,9 +33,9 @@ install: installdirs doc
 	install -m755 -t $(DESTDIR)/etc/runit/runsvdir/current/getty-2 base-services/getty-2/run base-services/getty-2/finish
 	install -m755 -t $(DESTDIR)/etc/runit/runsvdir/current/dbus base-services/dbus/run base-services/dbus/finish
 	
-	install -m644 -t $(DESTDIR)/usr/share/man/man5 rc.conf.5
-	install -m644 -t $(DESTDIR)/usr/share/man/man7 archlinux.7
-	install -m644 -t $(DESTDIR)/usr/share/man/man8 rc.d.8
+	install -m644 -t $(DESTDIR)/usr/share/man/man5 axe-init.conf.5
+	install -m644 -t $(DESTDIR)/usr/share/man/man7 axe.7
+	install -m644 -t $(DESTDIR)/usr/share/man/man8 axe-init.8
 
 
 %.5: %.5.txt
