@@ -18,9 +18,6 @@ DIRS := \
 	/usr/share/man/man8
 	
 MAN_PAGES := \
-	axe-init.conf.5 \
-	axe.7 \
-	axe-init.8 \
 	binfmt.d.5
 
 all: doc
