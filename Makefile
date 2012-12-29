@@ -16,6 +16,12 @@ DIRS := \
 	/usr/share/man/man7 \
 	/usr/share/man/man5 \
 	/usr/share/man/man8
+	
+MAN_PAGES := \
+	axe-init.conf.5 \
+	axe.7 \
+	axe-init.8 \
+	binfmt.d.5
 
 all: doc
 
@@ -33,9 +39,9 @@ install: installdirs doc
 	install -m755 -t $(DESTDIR)/etc/runit/runsvdir/current/getty-2 base-services/getty-2/run base-services/getty-2/finish
 	install -m755 -t $(DESTDIR)/etc/runit/runsvdir/current/dbus base-services/dbus/run base-services/dbus/finish
 	
-	install -m644 -t $(DESTDIR)/usr/share/man/man5 axe-init.conf.5
-	install -m644 -t $(DESTDIR)/usr/share/man/man7 axe.7
-	install -m644 -t $(DESTDIR)/usr/share/man/man8 axe-init.8
+	install -m644 -t $(DESTDIR)/usr/share/man/man1 $(filter %.7, $(MAN_PAGES))
+	install -m644 -t $(DESTDIR)/usr/share/man/man5 $(filter %.5, $(MAN_PAGES))
+	install -m644 -t $(DESTDIR)/usr/share/man/man8 $(filter %.8, $(MAN_PAGES))
 
 
 %.5: %.5.txt
@@ -47,10 +53,10 @@ install: installdirs doc
 %.8: %.8.txt
 	a2x -d manpage -f manpage $<
 
-doc: axe-init.conf.5 archlinux.7 axe-init.8
+doc: doc: $(MAN_PAGES)
 
 clean:
-	rm -f axe-init.conf.5 archlinux.7 axe-init.8
+	rm -f doc: $(MAN_PAGES)
 
 
 .PHONY: all installdirs install doc clean
