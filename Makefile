@@ -36,7 +36,7 @@ install: installdirs doc
 	install -m755 -t $(DESTDIR)/etc/runit/runsvdir/current/getty-2 base-services/getty-2/run base-services/getty-2/finish
 	install -m755 -t $(DESTDIR)/etc/runit/runsvdir/current/dbus base-services/dbus/run base-services/dbus/finish
 	
-	install -m644 -t $(DESTDIR)/usr/share/man/man1 $(filter %.7, $(MAN_PAGES))
+	install -m644 -t $(DESTDIR)/usr/share/man/man7 $(filter %.7, $(MAN_PAGES))
 	install -m644 -t $(DESTDIR)/usr/share/man/man5 $(filter %.5, $(MAN_PAGES))
 	install -m644 -t $(DESTDIR)/usr/share/man/man8 $(filter %.8, $(MAN_PAGES))
 
