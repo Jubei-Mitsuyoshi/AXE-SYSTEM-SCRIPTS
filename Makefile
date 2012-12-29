@@ -53,7 +53,7 @@ install: installdirs doc
 %.8: %.8.txt
 	a2x -d manpage -f manpage $<
 
-doc: doc: $(MAN_PAGES)
+doc: $(MAN_PAGES)
 
 clean:
 	rm -f doc: $(MAN_PAGES)

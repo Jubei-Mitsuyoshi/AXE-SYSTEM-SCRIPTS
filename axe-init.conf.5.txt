@@ -1,7 +1,7 @@
 /////
 vim:set ts=4 sw=4 syntax=asciidoc noet:
 /////
-rc.conf(5)
+axe-init.conf(5)
 ==========
 
 NAME

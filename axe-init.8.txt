@@ -1,7 +1,7 @@
 /////
 vim:set ts=4 sw=4 syntax=asciidoc noet:
 /////
-rc.d(8)
+axe-init(8)
 =======
 
 Name

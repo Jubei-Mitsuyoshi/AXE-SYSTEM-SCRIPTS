@@ -1,7 +1,7 @@
 /////
 vim:set ts=4 sw=4 syntax=asciidoc noet:
 /////
-archlinux(7)
+axe(7)
 ============
 
 NAME
