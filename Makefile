@@ -47,10 +47,10 @@ install: installdirs doc
 %.8: %.8.txt
 	a2x -d manpage -f manpage $<
 
-doc: rc.conf.5 archlinux.7 axe-init.8
+doc: axe-init.conf.5 archlinux.7 axe-init.8
 
 clean:
-	rm -f rc.conf.5 archlinux.7 axe-init.8
+	rm -f axe-init.conf.5 archlinux.7 axe-init.8
 
 
 .PHONY: all installdirs install doc clean
