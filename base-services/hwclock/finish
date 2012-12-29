@@ -1,0 +1,22 @@
+#!/bin/bash
+
+source /etc/rc.conf
+source /etc/rc.d/functions
+
+case "${HARDWARE_CLOCK}" in
+	utc) options="--utc";;
+	localtime) options="--localtime";;
+	*) options="";;
+esac
+
+case "${1}" in
+	start) exec_cmd "Adjusting system clock" int_hwclock_set --adjust ${options}
+		   dmn_add hwclock;;
+	stop) $0 start
+		  dmn_rm hwclock
+		;;
+	restart) $0 stop
+		     sleep 2
+		     $0 start ;;
+	*) echo "usage: $0 {start|stop|restart}" ;;
+esac

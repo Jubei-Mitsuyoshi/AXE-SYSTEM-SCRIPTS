@@ -1,0 +1,186 @@
+#!/bin/bash
+# initscripts functions
+#
+
+# sanitize PATH (will be overridden later when /etc/profile is sourced but is useful for udev)
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+			
+# prefixes:
+
+PREFIX_REG="::"
+PREFIX_HL=" >"
+
+# clear the TZ envvar, so daemons always respect /etc/localtime
+unset TZ
+
+# These can be overridden/reused for customizations like shutdown/loop-fsck.
+NETFS="nfs,nfs4,smbfs,cifs,codafs,ncpfs,shfs,fuse,fuseblk,glusterfs,davfs,fuse.glusterfs"
+NO_NETFS="no${NETFS//,/,no}"
+APIFS="devpts,devtmpfs,proc,sysfs,tmpfs"
+NO_APIFS="no${APIFS//,/,no}"
+
+# assign ommit pid's or do they get this list from somewhere else??
+# PIDs to be omitted by killall5
+declare -a omit_pids
+
+# set colors
+if [[ $AXE_INIT_USECOLOR != [nN][oO] ]]; then
+	if tput setaf 0 &>/dev/null; then
+		C_CLEAR=$(tput sgr0)                      # clear text
+		C_MAIN=${C_CLEAR}$(tput bold)        # main text
+		C_OTHER=${C_MAIN}$(tput setaf 4)     # prefix & brackets
+		C_SEPARATOR=${C_MAIN}$(tput setaf 0) # separator
+		C_BUSY=${C_CLEAR}$(tput setaf 6)     # busy
+		C_FAIL=${C_MAIN}$(tput setaf 1)      # failed
+		C_DONE=${C_MAIN}                          # completed
+		C_BKGD=${C_MAIN}$(tput setaf 5)      # backgrounded
+		C_H1=${C_MAIN}                            # highlight text 1
+		C_H2=${C_MAIN}$(tput setaf 6)        # highlight text 2
+	else
+		C_CLEAR="\e[m"          # clear text
+		C_MAIN="\e[;1m"         # main text
+		C_OTHER="\e[1;34m"      # prefix & brackets
+		C_SEPARATOR="\e[1;30m"  # separator
+		C_BUSY="\e[;36m"        # busy
+		C_FAIL="\e[1;31m"       # failed
+		C_DONE=${C_MAIN}        # completed
+		C_BKGD="\e[1;35m"       # backgrounded
+		C_H1=${C_MAIN}          # highlight text 1
+		C_H2="\e[1;36m"         # highlight text 2
+	fi
+fi
+
+
+
+# width:
+calc_columns () {
+	STAT_COL=80
+	if [[ ! -t 1 ]]; then
+		USECOLOR=""
+	elif [[ -t 0 ]]; then
+		# stty will fail when stdin isn't a terminal
+		STAT_COL=$(stty size)
+		# stty gives "rows cols"; strip the rows number, we just want columns
+		STAT_COL=${STAT_COL##* }
+	elif tput cols &>/dev/null; then
+		# is /usr/share/terminfo already mounted, and TERM recognized?
+		STAT_COL=$(tput cols)
+	fi
+	if (( STAT_COL == 0 )); then
+		# if output was 0 (serial console), set default width to 80
+		STAT_COL=80
+		USECOLOR=""
+	fi
+
+	# we use 13 characters for our own stuff
+	STAT_COL=$(( STAT_COL - 13 ))
+
+	if [[ -t 1 ]]; then
+		SAVE_POSITION="\e[s"
+		RESTORE_POSITION="\e[u"
+		DEL_TEXT="\e[$(( STAT_COL + 4 ))G"
+	else
+		SAVE_POSITION=""
+		RESTORE_POSITION=""
+		DEL_TEXT=""
+	fi
+}
+
+calc_columns
+
+# disable colors on broken terminals
+TERM_COLORS=$(tput colors 2>/dev/null)
+if (( $? != 3 )); then
+	case $TERM_COLORS in
+		*[!0-9]*) USECOLOR="";;
+		[0-7])    USECOLOR="";;
+		'')       USECOLOR="";;
+	esac
+fi
+unset TERM_COLORS
+
+
+# functions:
+
+deltext() {
+	printf "${DEL_TEXT}"
+}
+
+printhl() {
+	printf "${C_OTHER}${PREFIX_HL} ${C_H1}${1}${C_CLEAR} \n"
+}
+
+printsep() {
+	printf "\n${C_SEPARATOR}   ------------------------------\n"
+}
+
+stat_bkgd() {
+	printf "${C_OTHER}${PREFIX_REG} ${C_MAIN}${1}${C_CLEAR} "
+	deltext
+	printf "   ${C_OTHER}[${C_BKGD}BKGD${C_OTHER}]${C_CLEAR} \n"
+}
+
+stat_busy() {
+	printf "${C_OTHER}${PREFIX_REG} ${C_MAIN}${1}${C_CLEAR} "
+	printf "${SAVE_POSITION}"
+	deltext
+	printf "   ${C_OTHER}[${C_BUSY}BUSY${C_OTHER}]${C_CLEAR} "
+}
+
+stat_append() {
+	printf "${RESTORE_POSITION}"
+	printf -- "${C_MAIN}${1}${C_CLEAR}"
+	printf "${SAVE_POSITION}"
+}
+
+stat_done() {
+	deltext
+	printf "   ${C_OTHER}[${C_DONE}DONE${C_OTHER}]${C_CLEAR} \n"
+}
+
+stat_fail() {
+	deltext
+	printf "   ${C_OTHER}[${C_FAIL}FAIL${C_OTHER}]${C_CLEAR} \n"
+}
+
+stat_die() {
+	stat_fail
+	exit ${1:-1}
+}
+
+status() {
+	stat_busy "$1"
+	shift
+	"$@"
+	local ret=$?
+	[[ $ret = 0 ]] && stat_done || stat_fail
+	return $ret
+}
+
+#  usage : in_array( $needle, $haystack )
+# return : 0 - found
+#          1 - not found
+in_array() {
+	local needle=$1; shift
+	local item
+	for item; do
+		[[ $item = "${needle}" ]] && return 0
+	done
+	return 1 # Not Found
+}
+
+# Return PID of $1
+get_pid() {
+	pidof -o %PPID $1 || return 1
+}
+
+# Check if PID-file $1 is still the active PID-file for command $2
+ck_pidfile() {
+	if [[ -f $1 ]]; then
+		local fpid ppid
+		read -r fpid <"$1"
+		ppid=$(get_pid "$2")
+		[[ $fpid = "${ppid}" ]] && return 0
+	fi
+	return 1
+}

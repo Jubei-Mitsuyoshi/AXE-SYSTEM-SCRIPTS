@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# sourcing our current rc.conf requires this to be a bash script
+source /etc/rc.conf
+source /etc/rc.d/functions
+# mount -a -O _netdev
+
+case "${1}" in
+	start) exec_cmd "Mounting Network filesystems" mount --all --types "${NETFS}"
+		   if [ "${?}" = "0" ];then
+               dmn_add netfs
+           fi ;;
+	stop) exec_cmd "Unmounting Network filesystems" umount --all --force --types "${NETFS}"
+		  if [ "${?}" = "0" ];then
+              dmn_rm netfs
+          fi ;;
+	restart) $0 stop
+		     sleep 1
+		    $0 start ;;
+	*) echo "usage: $0 {start|stop|restart}"
+		exit 1 ;; 
+esac
+
+# vim: set ts=2 noet:

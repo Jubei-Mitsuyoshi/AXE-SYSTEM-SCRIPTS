@@ -1,0 +1,354 @@
+#!/bin/bash
+#
+# /runit/1
+#
+
+	. /runit/axeinit.conf
+	. /runit/common
+
+PATH="/command:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+
+# mount the API filesystems
+# /proc, /sys, /run, /dev, /run/lock, /dev/pts, /dev/shm
+mkdir --parents /{proc,sys,run,dev}
+mkdir --parents /dev/{pts,shm}
+mountpoint -q /proc    || mount -t proc proc /proc -o nosuid,noexec,nodev
+mountpoint -q /sys     || mount -t sysfs sys /sys -o nosuid,noexec,nodev
+mountpoint -q /run     || mount -t tmpfs run /run -o mode=0755,nosuid,nodev
+mountpoint -q /dev     || mount -t devtmpfs dev /dev -o mode=0755,nosuid
+mountpoint -q /dev/pts || mount -n -t devpts devpts /dev/pts -o mode=0620,gid=5,nosuid,noexec
+mountpoint -q /dev/shm || mount -n -t tmpfs shm /dev/shm -o mode=1777,nosuid,nodev
+
+
+if [[ ! -e /run/initramfs/root-fsck ]]; then
+	# remount root ro to allow for fsck later on, we remount now to
+	# make sure nothing can open files rw on root which would block a remount
+	stat_busy "Mounting root read-only" 
+	mount -o remount,ro && stat_done || stat_fail
+	
+fi
+
+# log all console messages
+bootlogd -p /run/bootlogd.pid
+
+
+HWCLOCK_PARAMS="--systz"
+case $AXE_INIT_HARDWARECLOCK in
+	"") ;;
+	UTC) HWCLOCK_PARAMS+=" --utc --noadjfile";;
+	localtime) HWCLOCK_PARAMS+=" --localtime --noadjfile";;
+	*) HWCLOCK_PARAMS="";;
+esac
+
+if [[ $HWCLOCK_PARAMS ]]; then
+	stat_busy "Adjusting system time and setting kernel time zone"
+
+	# Adjust the system time for time zone offset if rtc is not in UTC, as
+	# filesystem checks can depend on system time. This also sets the kernel
+	# time zone, used by e.g. vfat.
+	# If TIMEZONE is not set in rc.conf, the time zone stored in /etc/localtime
+	# is used. If AXE_INIT_HARDWARECLOCK is not set in rc.conf, the value in
+	# /etc/adjfile is used.
+
+	[[ $TIMEZONE ]] && export TZ=$TIMEZONE
+
+	hwclock $HWCLOCK_PARAMS && stat_done || stat_fail
+
+	unset TZ
+fi
+
+if [[ -f /etc/adjtime ]]; then
+	( read ; read ; read ADJTIME) < /etc/adjtime
+
+	if [[ $ADJTIME == 'LOCAL' ]]; then
+		if	[[ $AXE_INIT_HARDWARECLOCK == 'UTC' ]]; then
+			printf "${C_FAIL}/etc/rc.conf says the RTC is in UTC, but /etc/adjtime says it is in localtime.\n${C_OTHER}."
+		fi
+	else
+		if [[ $AXE_INIT_HARDWARECLOCK == 'LOCALTIME' ]]; then
+			printf "${C_FAIL}/etc/rc.conf says the RTC is in localtime, but hwclock (/etc/adjtime) thinks it is in UTC.\n${C_OTHER}."
+		fi
+	fi
+fi
+
+
+stat_busy "Configuring Kernel parameters" 
+sysctl --system --write && stat_done || stat_fail
+
+stat_busy "Starting udev daemon"
+udevd --daemon && stat_done || stat_fail
+
+stat_busy "Triggering udev subsystems"
+udevadm trigger --action=add --type=subsystems && stat_done || stat_fail
+stat_busy "Triggering udev devices"
+udevadm trigger --action=add --type=devices && stat_done || stat_fail
+
+# Load modules from the MODULES array and modules-load.d
+if [ -n "${MODULES[*]}" ];then
+	stat_busy "Loading user-specified modules"
+	modprobe --all --use-blacklist "${MODULES[@]}" && stat_done || stat_fail
+fi
+
+stat_busy "Waiting for UDev uevents to be processed" 
+udevadm settle && stat_done || stat_fail
+
+# in case loading a module changed the display mode
+calc_columns
+
+
+stat_busy "Activating swap" 
+swapon -a
+
+# bring up the loopback interface
+if [[ -d /sys/class/net/lo ]]; then
+	stat_busy "Bringing up loopback interface" 
+	ip link set up dev lo && stat_done || stat_fail
+fi
+
+# FakeRAID devices detection
+if [[ $AXE_INIT_USEDMRAID = [Yy][Ee][Ss] && -x $(type -P dmraid) ]]
+	stat_busy "Activating FakeRAID arrays" 
+	dmraid -i -ay && stat_done || stat_fail
+fi
+
+# btfrs detection
+if [ $AXE_INIT_USEBTRFS = [yY][eE][sS] ];then
+	stat_busy "Activating BTRFS volumes" 
+	btrfs device scan  && stat_done || stat_fail
+fi
+	
+# Activate LVM2 groups, if any
+	if [[ $AXE_INIT_USELVM = [yY][eE][sS] && -x $(type -P lvm) && -d /sys/block ]]; then
+		stat_busy "Activating LVM2 groups"
+		vgchange --sysinit -a y >/dev/null
+		[[ $? = 0 ]] && stat_done || stat_fail
+	fi
+
+# Set up non-root encrypted partition mappings
+if [[ -f /etc/crypttab ]] && type -p cryptsetup >/dev/null; then
+	read_crypttab do_unlock
+	# Maybe someone has LVM on an encrypted block device
+	if [[ $? ]]; then
+		if [[ $AXE_INIT_USELVM = [yY][eE][sS] && -x $(type -P lvm) && -d /sys/block ]]; then
+			stat_busy "Activating LVM2 groups"
+			vgchange --sysinit -a y >/dev/null
+			[[ $? = 0 ]] && stat_done || stat_fail
+		fi
+	fi
+fi
+
+# Check filesystems
+
+if [[ -x $(type -P fsck) ]]; then
+	stat_busy "Checking filesystems"
+	if [[ -f /forcefsck ]] || chk_in_array forcefsck $(< /proc/cmdline); then
+		fsck -T -A -P -a -t "${NO_NETFS}" -f
+		# Automatic reboot after fsck (if needed)
+		# Ignore conditions 'FS errors corrected' and 'Cancelled by the user'
+		if [ "${?}" = "2" ]; then
+			echo
+			echo "********************** REBOOT REQUIRED *********************"
+			echo "*                                                          *"
+			echo "* The system will be rebooted automatically in 15 seconds. *"
+			echo "*                                                          *"
+			echo "************************************************************"
+			echo
+			sleep 15
+			echo "Automatic reboot in progress..."
+			umount --all
+			mount --options remount,ro /
+			reboot -f
+			exit 0
+		elif [ "${?}" = "4" ] || [ "${?}" = "8" ]; then
+			echo
+			echo "*****************  FILESYSTEM CHECK FAILED  ****************"
+			echo "*                                                          *"
+			echo "*  Please repair manually and reboot. Note that the root   *"
+			echo "*  file system is currently mounted read-only. To remount  *"
+			echo "*  it read-write, type: mount -o remount,rw /              *"
+			echo "*  When you exit the maintenance shell, the system will    *"
+			echo "*  reboot automatically.                                   *"
+			echo "*                                                          *"
+			echo "************************************************************"
+			echo
+			sulogin -p
+			echo "Automatic reboot in progress..."
+			umount --all
+			mount --options remount,ro /
+			reboot -f
+			exit 0
+		fi
+	elif [[ -f /fastboot ]] || chk_in_array fastboot $(< /proc/cmdline); then
+		echo "fastboot... skipping automatic reboot..."
+	elif [[ -e /run/initramfs/root-fsck ]]; then
+		fsck -T -A -P -a -t "${NO_NETFS}" -M
+		# Automatic reboot after fsck (if needed)
+		# Ignore conditions 'FS errors corrected' and 'Cancelled by the user'
+		if [ "${?}" = "2" ]; then
+			echo
+			echo "********************** REBOOT REQUIRED *********************"
+			echo "*                                                          *"
+			echo "* The system will be rebooted automatically in 15 seconds. *"
+			echo "*                                                          *"
+			echo "************************************************************"
+			echo
+			sleep 15
+			echo "Automatic reboot in progress..."
+			umount --all
+			mount --options remount,ro /
+			reboot -f
+			exit 0
+		elif [ "${?}" = "4" ] || [ "${?}" = "8" ]; then
+			echo
+			echo "*****************  FILESYSTEM CHECK FAILED  ****************"
+			echo "*                                                          *"
+			echo "*  Please repair manually and reboot. Note that the root   *"
+			echo "*  file system is currently mounted read-only. To remount  *"
+			echo "*  it read-write, type: mount -o remount,rw /              *"
+			echo "*  When you exit the maintenance shell, the system will    *"
+			echo "*  reboot automatically.                                   *"
+			echo "*                                                          *"
+			echo "************************************************************"
+			echo
+			sulogin -p
+			echo "Automatic reboot in progress..."
+			umount --all
+			mount --options remount,ro /
+			reboot -f
+			exit 0
+		fi
+	
+	fi
+fi
+
+# remount root as rw
+stat_busy "Remounting Root read-write"
+mount --options remount,rw / && stat_done || stat_fail
+
+# remove any tmp files , can leave this off ???? since have no tempfiles ??
+stat_busy "Removing leftover files"
+/usr/lib/axeinit/tmpfiles --create --remove
+[[ $? = 0 ]] && stat_done || stat_fail
+
+
+stat_busy "Loading additional binary formats" 
+/usr/lib/axeinit/binfmt
+[[ $? = 0 ]] && stat_done || stat_fail
+
+
+stat_busy "Mounting local filesystems" 
+mount -a -t "no${NETFS//,/,no}" -O no_netdev && stat_done || stat_fail
+
+
+# Enable monitoring of LVM2 groups, now that the filesystems are mounted rw
+if [[ $AXE_INIT_USELVM == [Yy][Ee][Ss] && -x $(type -P lvm) && -d /sys/block ]];then
+	stat_busy "Activating monitoring of LVM2 groups"
+	vgchange --monitor y >/dev/null && stat_done || stat_fail
+fi
+
+
+
+# restore random seed
+if [ -f "${RANDOM_SEED}" ];then
+	stat_busy "Restoring random seed" 
+	cp "${RANDOM_SEED}" /dev/urandom && stat_done || stat_fail
+fi
+
+
+#set consoles to utf8
+if [ "${LANG: -5}" = "UTF-8" ]; then
+	stat_busy "Setting Consoles to UTF-8 mode"
+    # UTF-8 consoles are default since 2.6.24 kernel
+    # this code is needed not only for older kernels,
+    # but also when user has set vt.default_utf8=0 but LANG is *.UTF-8.
+    for i in /dev/tty[0-9]*;do
+        kbd_mode -u -C "${i}"
+        printf "\e%%G" > "${i}"
+    done
+    echo 1 >| /sys/module/vt/parameters/default_utf8 && stat_done || stat_fail
+else
+	stat_busy "Setting Consoles to legacy mode"
+    # make non-UTF-8 consoles work on 2.6.24 and newer kernels
+    for i in /dev/tty[0-9]*;do
+        kbd_mode -u -C "${i}"
+        printf "\e%%G" > "${i}"
+    done
+    echo 0 >| /sys/module/vt/parameters/default_utf8 && stat_done || stat_fail
+fi
+
+#export locale vars
+stat_busy "Setting system locale"
+localevars=("${LC_CTYPE}" "${LC_COLLATE}" "${LC_TIME}" "${LC_NUMERIC}"
+            "${LC_MONETARY}" "${LC_MESSAGES}" "${LC_ALL}")
+            
+export LANG="${LANG:-C}"     
+for var in localevars;do
+    if [ -n "${var}" ]; then
+        export ${var}
+    else
+        unset ${var}
+    fi
+done
+unset localevars
+
+#set timezone
+if [ -n "${AXE_INIT_TIMEZONE}" ]; then
+    stat_busy "Setting time zone: ${AXE_INIT_TIMEZONE}"
+	if [ "$(readlink /etc/localtime)" != "/usr/share/zoneinfo/${AXE_INIT_TIMEZONE}" ];then
+        ln --symbolic --force "/usr/share/zoneinfo/${1}" "/etc/localtime"
+	fi
+	stat_done
+fi
+
+#set consolefont
+if [ -n "${AXE_INIT_CONSOLEFONT}" ];then
+    stat_busy "Loading Console font: ${AXE_INIT_CONSOLEFONT}" 
+	setfont -u "${AXE_INIT_CONSOLEFONT}" -C /dev/tty[0-9]* && stat_done || stat_fail
+fi
+
+#set consolemap
+if [ -n "${AXE_INIT_CONSOLEMAP}" ];then
+    stat_busy "Loading Console map: ${AXE_INIT_CONSOLEMAP}" 
+	setfont -m "${AXE_INIT_CONSOLEMAP}" -C /dev/tty[0-9]* && stat_done || stat_fail
+fi
+
+#set keyboardmap
+if [ -n "${AXE_INIT_KEYMAP}" ];then
+    stat_busy "Loading Keyboard map: ${AXE_INIT_KEYMAP}" 
+	loadkeys "${AXE_INIT_KEYMAP}" && stat_done || stat_fail
+fi
+
+#set hostname
+if [ -n "${HOSTNAME}" ]; then
+	stat_busy "Setting hostname: ${HOSTNAME}" 
+	hostname "${HOSTNAME}" && stat_done || stat_fail
+#	echo "$HOSTNAME" >| /proc/sys/kernel/hostname && stat_done || stat_fail
+fi
+
+# stop bootlogd daemon
+if [ -f "/run/bootlogd.pid" ];then
+	stat_busy "Stopping bootlogd daemon"
+    touch /var/log/boot
+    kill $(< /run/bootlogd.pid)
+    rm /run/bootlogd.pid
+	stat_done
+fi
+
+
+# save dmsg log
+stat_busy "Saving dmesg log"
+	if [[ -e /proc/sys/kernel/dmesg_restrict ]] &&
+		(( $(< /proc/sys/kernel/dmesg_restrict) == 1 )); then
+		dmesg > /var/log/dmesg.log && chmod 0600 /var/log/dmesg.log && stat_done || stat_fail
+	else
+		dmesg > /var/log/dmesg.log && chmod 0644 /var/log/dmesg.log && stat_done || stat_fail
+	fi
+ 
+
+ 
+
+
+# End of file
+# vim: set ts=2 sw=2 noet:

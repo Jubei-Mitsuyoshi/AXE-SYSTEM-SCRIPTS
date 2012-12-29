@@ -1,0 +1,198 @@
+#!/bin/bash
+#
+# /runit/1
+#
+
+	. /runit/axeinit.conf
+	. /runit/common
+	
+# sanitize PATH (will be overridden later when /etc/profile is sourced, but is useful for UDev)
+PATH="/command:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+killall_wait() {
+	# Send SIGTERM/SIGKILL all processes and wait until killall5
+	# reports all done or timeout.
+	# Unfortunately killall5 does not support the 0 signal, so just
+	# use SIGCONT for checking (which should be ignored).
+
+	local i
+
+	killall5 -${1} ${omit_pids[@]/#/-o }
+
+	for (( i=0; i<${2}; i++ )); do
+
+		sleep .25 # 1/4 second
+
+		# sending SIGCONT to processes to check if they are there
+		killall5 -18 ${omit_pids[@]/#/-o }
+
+		if (( $? == 2 )); then
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+umount_all() {
+    local fstype
+
+	findmnt -mrunRo TARGET,FSTYPE,OPTIONS / | {
+		while read -r target fstype options; do
+			# match only targeted fstypes
+			if [ "${1}" != "$fstype" ]; then
+				continue
+			fi
+
+			# do not unmount API filesystems
+			if [[ $target = /@(proc|sys|run|dev|dev/pts) ]]; then
+				continue
+			fi
+
+			# avoid networked devices
+			IFS=, read -ra opts <<< "$options"
+			if chk_in_array _netdev "${opts[@]}"; then
+				continue
+			fi
+
+			mounts=("$target" "${mounts[@]}")
+		done
+
+		if (( ${#mounts[*]} )); then
+			umount --read-only "${mounts[@]}"
+		fi
+	}
+
+}
+
+
+# avoid staircase effect
+stty onlcr
+
+echo " "
+printhl "Initiating shutdown..."
+echo " "
+
+
+#save random seed
+install -TDm 0600 /dev/null "${RANDOM_SEED}"
+
+if [ -r "/proc/sys/kernel/random/poolsize" ]; then
+	dd if=/dev/urandom of="${RANDOM_SEED}" count=1 bs=$(< "${pool_file}")  && stat_done || stat_fail
+else
+	dd if=/dev/urandom of="${RANDOM_SEED}" count=1 bs=512  && stat_done || stat_fail
+fi
+    
+	
+   
+
+#clear up timezone
+if [ -n "${TIME_ZONE}" ]; then
+    stat_busy  "Setting time zone: ${TIME_ZONE}" 
+	if [ "$(readlink /etc/localtime)" != "/usr/share/zoneinfo/${TIME_ZONE}" ];then
+        ln --symbolic --force "/usr/share/zoneinfo/${TIME_ZONE}" "/etc/localtime" && stat_done || stat_fail
+	fi
+elif [ -f "/etc/localtime" ];then
+    stat_busy  "Dumping /etc/localtime" 
+	rm /etc/localtime && stat_done || stat_fail
+fi
+
+# Write to wtmp file before unmounting
+halt -w
+
+# stop monitoring of LVM2 groups before unmounting filesystems
+if [[ $USELVM = [Yy][Ee][Ss] && -x $(type -P lvm) ]]; then
+	stat_busy "Deactivating monitoring of LVM2 groups" 
+	vgchange --monitor n && stat_done || stat_fail
+fi
+
+
+# any future uevents can and should be ignored
+stat_busy "Shutting down UDev" 
+udevadm control --exit && stat_done || stat_fail
+
+# kill processes
+stat_busy "Sending SIGTERM To processes" 
+killall_wait 15 40
+    
+if [ "${?}" = "0" ];then
+    stat_busy 
+	"Sending SIGKILL To processes" killall_wait 9 60
+	[[ $? == 0 ]] && stat_done || stat_fail
+else
+	stat_done
+fi
+
+
+# unmount any non-API partitions that are backed by swap, we don't want to
+# move their contents into memory (waste of time and might caues OOM).
+stat_busy  "Unmounting Swap-backend Filesystems" 
+umount_all "tmpfs" && stat_done || stat_fail
+stat_busy  "Deactivating Swap"
+swapoff --all && stat_done || stat_fail
+
+
+stat_busy  "Unmounting non-API Filesystems"
+umount_all && stat_done || stat_fail
+
+# Kill non-root encrypted partition mappings
+if [[ -f /etc/crypttab ]] && type -p cryptsetup >/dev/null; then
+	# Maybe someone has LVM on an encrypted block device
+	[[ $USELVM = [Yy][Ee][Ss] ]] && vgchange --sysinit -a n &>/dev/null
+	read_crypttab do_lock
+fi
+
+[[ $USELVM = [Yy][Ee][Ss] && -x $(type -P lvm) ]] &&
+	status "Deactivating LVM2 groups" vgchange --sysinit -a n &>/dev/null
+
+if [ -x "/run/initramfs/shutdown" ]; then
+	# decide what we want to do
+	if [ "${RUNLEVEL}" = "0" ]; then
+		action="poweroff"
+	else
+		if [ "$(</sys/kernel/kexec_loaded)" = "1" ]; then
+			action="kexec"
+		else
+			action="reboot"
+		fi
+	fi
+
+	# make /run/initramfs a mount
+	mount --bind /run/initramfs /run/initramfs
+
+	# in case someone has shared our mountpoints, unshare them
+	mount --make-private /run/initramfs
+	mount --make-private /
+
+	# bind all API mounts
+	mkdir --parents /run/initramfs/{sys,proc,dev,run,oldroot}
+	mount --bind /sys /run/initramfs/sys
+	mount --bind /proc /run/initramfs/proc
+	mount --bind /dev /run/initramfs/dev
+	mount --bind /run /run/initramfs/run
+
+	# enter shutdownramfs
+	cd /run/initramfs
+	pivot_root . oldroot
+
+	# reexec init
+	/oldroot/sbin/init u
+
+	# run /shutdown in the new root
+	exec chroot . /shutdown "${action}" </dev/console >/dev/console 2>&1
+
+else
+	stat_busy  "Remounting Root filesystem read-only" mount --options remount,ro /
+
+	# Power off or reboot
+	if [ "${RUNLEVEL}" = "0" ]; then
+		msg_headline "POWER OFF"
+		poweroff -d -f -h -i
+	else
+		msg_headline "REBOOTING"
+		# if kexec is installed and a kernel is loaded, use it
+		[[ -x $(type -P kexec) ]] && kexec -e
+		reboot -d -f -i
+	fi
+
+fi
