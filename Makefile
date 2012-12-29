@@ -33,24 +33,24 @@ install: installdirs doc
 	install -m755 -t $(DESTDIR)/etc/runit/runsvdir/current/getty-2 base-services/getty-2/run base-services/getty-2/finish
 	install -m755 -t $(DESTDIR)/etc/runit/runsvdir/current/dbus base-services/dbus/run base-services/dbus/finish
 	
-	install -m644 -t $(DESTDIR)/usr/share/man/man1 axerunitscripts.1
-	install -m644 -t $(DESTDIR)/usr/share/man/man5 axe-init.conf.5
-	install -m644 -t $(DESTDIR)/usr/share/man/man5 binfmt.d.5
+	install -m644 -t $(DESTDIR)/usr/share/man/man5 rc.conf.5
+	install -m644 -t $(DESTDIR)/usr/share/man/man7 archlinux.7
+	install -m644 -t $(DESTDIR)/usr/share/man/man8 rc.d.8
 
-
-%.1: %.1.txt
-	a2x -d manpage -f manpage $<
 
 %.5: %.5.txt
+	a2x -d manpage -f manpage $<
+
+%.7: %.7.txt
 	a2x -d manpage -f manpage $<
 
 %.8: %.8.txt
 	a2x -d manpage -f manpage $<
 
-doc: axe-init.conf.5 binfmt.d.5 axerunitscripts.1
+doc: rc.conf.5 archlinux.7 rc.d.8
 
 clean:
-	rm -f axe-init.conf.5 binfmt.d.5 axerunitscripts.1
+	rm -f rc.conf.5 archlinux.7 rc.d.8
 
 
 .PHONY: all installdirs install doc clean
