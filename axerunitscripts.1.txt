@@ -1,0 +1,168 @@
+rc.conf(5)
+==========
+
+NAME[[N]]
+---------
+rc.conf - Initscripts main configuration file
+
+DESCRIPTION[[D]]
+----------------
+The 'rc.conf' file is the system configuration file for *initscripts*.
+The format is *Bash*. It contains several commonly-edited settings such
+as timezone; keymap; kernel modules; daemons to load at start-up; etc. It is
+split up in a few sections to categorize configuration settings: localization,
+system time, virtual consoles, hardware and misc.
+
+Note: if the value of variable is empty (null), the feature it configures is left untouched.
+
+LOCALIZATION[[L]]
+-----------------
+*LANG=*'string'
+
+*LC_CTYPE=*'string'
+
+*LC_COLLATE=*'string'
+
+*LC_TIME=*'string'
+
+*LC_NUMERIC=*'string'
+
+*LC_MONETARY=*'string'
+
+*LC_MESSAGES=*'string'
+
+*LC_ALL=*'string'
+
+This variables set your system language, which will be used by all i18n-friendly applications and utilities.
+For more info *locale*(1)
+
+Default: *empty*
+
+SYSTEM TIME[[S]]
+----------------
+*TIME_ZONE=*'string'
+
+Specifies the timezone. The setting takes effect on boot by ensuring that '/etc/localtime' is a symlink
+to the correct zoneinfo file. Possible time zones are the relative path to a zoneinfo file starting
+from the directory '/usr/share/zoneinfo'. For example, a German time zones would be 'Europe/Berlin',
+which refers to the file '/usr/share/zoneinfo/Europe/Berlin'.
+
+Default: *empty*
+
+*HARDWARE_CLOCK=*'utc'|'localtime'
+
+How to interpret/update the hardware clock. (used by 'hwclock' daemon)
+
+Options:
+
+	- 'utc': most robust, allows operating systems to abstract local time and ease DST.
+	- 'localtime': apply timezone (and DST) in hardware clock: discouraged.
+	  Choose this if you dualboot with an OS which cannot handle UTC BIOS times correctly, like Windows.
+      Note that recent Windows versions can use UTC, which is preferable.
+	- any other value will result in the hardware clock being left untouched (useful for virtualization)
+
+Default: *empty*
+
+VIRTUAL CONSOLES[[V]]
+---------------------
+*CONSOLE_FONT=*'string'
+
+Defines the console font to load with the *setfont* program on boot.
+Possible fonts are found in '/usr/share/kbd/consolefonts' (only needed for non-US).
+
+Default: *empty*
+
+*CONSOLE_MAP=*'string'
+
+Defines the console map to load with the *setfont* program on boot. Possible maps are found in
+'/usr/share/kbd/consoletrans'. Set this to a map suitable for the appropriate locale (8859-1 for Latin1,
+for example) if you're using an UTF-8 locale and use programs that generate 8-bit output.
+
+Default: *empty*
+
+*KEYMAP=*'string'
+
+Defines the keymap to load with the *loadkeys* program on boot. Possible keymaps are
+found in '/usr/share/kbd/keymaps'. 
+
+Default: *empty*
+
+Note: This settings are only valid for your TTYs, not any graphical *Window Managers* or *X11*/*Xorg*. If you're
+using *X11* for everyday work, don't bother, as it only affects the output of Linux Console applications.
+
+HARDWARE[[H]]
+-------------
+*MODULES=(*'array'*)*
+
+Modules to load at boot-up. Blacklisted modules are not loaded.
+
+Default: *empty*
+
+*USE_SWAP=*'yes'|'no'
+
+Enable swap partitions activation
+
+Default: *no*
+
+*USE_DMRAID=*'yes'|'no'
+
+Scan for FakeRAID (dmraid) Volumes at start-up.
+
+Default: *no*
+
+*USE_BTRFS=*'yes'|'no'
+
+Scan for BTRFS volumes at start-up.
+
+Default: *no*
+
+*USE_LVM=*'yes'|'no'
+
+Scan for LVM volume groups at start-up. This is required if you use LVM.
+
+Default: *no*
+
+MISC[[M]]
+---------
+*USE_COLOR=*'yes'|'no'
+
+Use ANSI color sequences in start-up messages
+
+Default: *yes*
+
+*HOSTNAME=*'string'
+
+Hostname of machine.
+
+Default: *empty*
+
+*DAEMONS=(*'array'*)*
+
+Daemons to be started at start-up.
+
+If you are sure nothing else touches your hardware clock (such as ntpd or
+by dual-booting), you might want to enable 'hwclock'. Note that this will only
+make a difference if the *hwclock* program has been calibrated correctly.
+
+If you use a network filesystem, you should enable 'netfs'.
+
+Default: *syslog-ng crond*
+
+FILES[[F]]
+----------
+'/etc/rc.conf'::
+	System configuration file for Initscripts.
+
+RESOURCES[[R]]
+--------------
+Arch Linux initscripts: http://projects.archlinux.org/initscripts.git
+
+Initscripts fork: https://github.com/fluxer/initscripts
+
+SEE ALSO
+--------
+*hwclock*(8), *loadkeys*(1), *setfont*(8), *modprobe.d*(5), *hostname*(1), *initscripts*(1), *rc.d*(8)
+
+AUTHORS[[A]]
+------------
+Written by Dieter Plaetinck, Tom Gundersen and others. Forked by Ivailo Monev.
