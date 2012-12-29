@@ -1,12 +1,12 @@
 DIRS := \
 	/etc/runit \
 	/usr/sbin \
-	/etc/runit/runsvdir/current/getty-1
-	/etc/runit/runsvdir/current/getty-2
-	/etc/runit/runsvdir/current/getty-1/log
-	/etc/runit/runsvdir/current/getty-2/log
-	/etc/runit/runsvdir/current/dbus
-	/etc/runit/runsvdir/current/dbus/log
+	/etc/runit/runsvdir/current/getty-1 \
+	/etc/runit/runsvdir/current/getty-2 \
+	/etc/runit/runsvdir/current/getty-1/log \
+	/etc/runit/runsvdir/current/getty-2/log \
+	/etc/runit/runsvdir/current/dbus \
+	/etc/runit/runsvdir/current/dbus/log \
 	/etc/logrotate.d \
 	/etc/tmpfiles.d \
 	/usr/lib/tmpfiles.d \
@@ -47,10 +47,10 @@ install: dirs doc
 %.8: %.8.txt
 	a2x -d manpage -f manpage $<
 
-doc: rc.conf.5 archlinux.7 rc.d.8
+doc: axe-init.conf.5 binfmt.d.5
 
 clean:
-	rm -f rc.conf.5 archlinux.7 rc.d.8
+	rm -f axe-init.conf.5 binfmt.d.5
 
 
 .PHONY: all installdirs install doc clean
