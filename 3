@@ -147,14 +147,14 @@ fi
 
 if [ -x "/run/initramfs/shutdown" ]; then
 	# decide what we want to do
-	if [ "${RUNLEVEL}" = "0" ]; then
-		action="poweroff"
-	else
+	if [ -x /etc/runit/reboot ]; then
 		if [ "$(</sys/kernel/kexec_loaded)" = "1" ]; then
 			action="kexec"
 		else
 			action="reboot"
 		fi
+	else
+		action="poweroff"
 	fi
 
 	# make /run/initramfs a mount
@@ -185,14 +185,14 @@ else
 	stat_busy  "Remounting Root filesystem read-only" mount --options remount,ro /
 
 	# Power off or reboot
-	if [ "${RUNLEVEL}" = "0" ]; then
-		msg_headline "POWER OFF"
-		poweroff -d -f -h -i
-	else
-		msg_headline "REBOOTING"
+	if [ -x /etc/runit/reboot ]; then
+		stat_busy "REBOOTING"
 		# if kexec is installed and a kernel is loaded, use it
 		[[ -x $(type -P kexec) ]] && kexec -e
 		reboot -d -f -i
+	else
+		stat_busy "POWER OFF"
+		poweroff -d -f -h -i
 	fi
 
 fi
