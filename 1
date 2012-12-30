@@ -99,7 +99,7 @@ calc_columns
 
 
 stat_busy "Activating swap" 
-swapon -a
+swapon -a  && stat_done || stat_fail
 
 # bring up the loopback interface
 if [[ -d /sys/class/net/lo ]]; then
@@ -180,6 +180,7 @@ if [[ -x $(type -P fsck) ]]; then
 			reboot -f
 			exit 0
 		fi
+		stat_done
 	elif [[ -f /fastboot ]] || chk_in_array fastboot $(< /proc/cmdline); then
 		echo "fastboot... skipping automatic reboot..."
 	elif [[ -e /run/initramfs/root-fsck ]]; then
@@ -219,6 +220,7 @@ if [[ -x $(type -P fsck) ]]; then
 			reboot -f
 			exit 0
 		fi
+		stat_done
 	
 	fi
 fi
@@ -292,6 +294,7 @@ for var in localevars;do
     fi
 done
 unset localevars
+stat_done
 
 #set timezone
 if [ -n "${AXE_INIT_TIMEZONE}" ]; then
