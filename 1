@@ -3,8 +3,8 @@
 # /runit/1
 #
 
-	. /runit/axeinit.conf
-	. /runit/common
+	. /etc/runit/axe-init.conf
+	. /etc/runit/common
 
 PATH="/command:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -108,13 +108,13 @@ if [[ -d /sys/class/net/lo ]]; then
 fi
 
 # FakeRAID devices detection
-if [[ $AXE_INIT_USEDMRAID = [Yy][Ee][Ss] && -x $(type -P dmraid) ]]
+if [[ $AXE_INIT_USEDMRAID = [Yy][Ee][Ss] && -x $(type -P dmraid) ]]; then
 	stat_busy "Activating FakeRAID arrays" 
 	dmraid -i -ay && stat_done || stat_fail
 fi
 
 # btfrs detection
-if [ $AXE_INIT_USEBTRFS = [yY][eE][sS] ];then
+if [[ $AXE_INIT_USEBTRFS = [yY][eE][sS] ]];then
 	stat_busy "Activating BTRFS volumes" 
 	btrfs device scan  && stat_done || stat_fail
 fi
@@ -296,26 +296,26 @@ unset localevars
 #set timezone
 if [ -n "${AXE_INIT_TIMEZONE}" ]; then
     stat_busy "Setting time zone: ${AXE_INIT_TIMEZONE}"
-	if [ "$(readlink /etc/localtime)" != "/usr/share/zoneinfo/${AXE_INIT_TIMEZONE}" ];then
+	if [ "$(readlink /etc/localtime)" != "/usr/share/zoneinfo/${AXE_INIT_TIMEZONE}" ]; then
         ln --symbolic --force "/usr/share/zoneinfo/${1}" "/etc/localtime"
 	fi
 	stat_done
 fi
 
 #set consolefont
-if [ -n "${AXE_INIT_CONSOLEFONT}" ];then
+if [ -n "${AXE_INIT_CONSOLEFONT}" ]; then
     stat_busy "Loading Console font: ${AXE_INIT_CONSOLEFONT}" 
 	setfont -u "${AXE_INIT_CONSOLEFONT}" -C /dev/tty[0-9]* && stat_done || stat_fail
 fi
 
 #set consolemap
-if [ -n "${AXE_INIT_CONSOLEMAP}" ];then
+if [ -n "${AXE_INIT_CONSOLEMAP}" ]; then
     stat_busy "Loading Console map: ${AXE_INIT_CONSOLEMAP}" 
 	setfont -m "${AXE_INIT_CONSOLEMAP}" -C /dev/tty[0-9]* && stat_done || stat_fail
 fi
 
 #set keyboardmap
-if [ -n "${AXE_INIT_KEYMAP}" ];then
+if [ -n "${AXE_INIT_KEYMAP}" ]; then
     stat_busy "Loading Keyboard map: ${AXE_INIT_KEYMAP}" 
 	loadkeys "${AXE_INIT_KEYMAP}" && stat_done || stat_fail
 fi
@@ -328,7 +328,7 @@ if [ -n "${HOSTNAME}" ]; then
 fi
 
 # stop bootlogd daemon
-if [ -f "/run/bootlogd.pid" ];then
+if [ -f "/run/bootlogd.pid" ]; then
 	stat_busy "Stopping bootlogd daemon"
     touch /var/log/boot
     kill $(< /run/bootlogd.pid)
