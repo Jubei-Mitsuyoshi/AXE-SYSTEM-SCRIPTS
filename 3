@@ -65,6 +65,10 @@ umount_all() {
 
 }
 
+stat_busy 'Waiting for services to stop...'
+sv -w196 force-stop /etc/runit/runsvdir/current/*
+sv exit /etc/runit/runsvdir/current/*
+
 
 # avoid staircase effect
 stty onlcr
@@ -89,7 +93,7 @@ fi
 #clear up timezone
 if [ -n "${TIME_ZONE}" ]; then
     stat_busy  "Setting time zone: ${TIME_ZONE}" 
-	if [ "$(readlink /etc/localtime)" != "/usr/share/zoneinfo/${TIME_ZONE}" ];then
+	if [ "$(readlink /etc/localtime)" != "/usr/share/zoneinfo/${TIME_ZONE}" ]; then
         ln --symbolic --force "/usr/share/zoneinfo/${TIME_ZONE}" "/etc/localtime" && stat_done || stat_fail
 	fi
 elif [ -f "/etc/localtime" ];then
@@ -115,7 +119,7 @@ udevadm control --exit && stat_done || stat_fail
 stat_busy "Sending SIGTERM To processes" 
 killall_wait 15 40
     
-if [ "${?}" = "0" ];then
+if [ "${?}" = "0" ]; then
     stat_busy 
 	"Sending SIGKILL To processes" killall_wait 9 60
 	[[ $? == 0 ]] && stat_done || stat_fail
